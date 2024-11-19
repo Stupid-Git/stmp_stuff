@@ -40,6 +40,7 @@ static char *output_file;
 static uint32_t speed = 500000;
 static uint16_t delay;
 static int verbose;
+static int isSlave = 0;
 
 uint8_t default_tx[] = {
 	0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
@@ -109,7 +110,7 @@ static int unescape(char *_dst, char *_src)
 	return ret;
 }
 
-static void transfer(int fd, uint8_t const *tx, uint8_t const *rx, size_t len)
+static void transfer(int fd, uint8_t const *tx, uint8_t const *rx, size_t len, int is_slave)
 {
 	int ret;
 	int out_fd;
@@ -148,6 +149,7 @@ static void transfer(int fd, uint8_t const *tx, uint8_t const *rx, size_t len)
 		out_fd = open(output_file, O_WRONLY | O_CREAT | O_TRUNC, 0666);
 		if (out_fd < 0)
 			pabort("could not open output file");
+
 
 		ret = write(out_fd, rx, len);
 		if (ret != len)
@@ -205,17 +207,21 @@ static void parse_opts(int argc, char *argv[])
 			{ "dual",    0, 0, '2' },
 			{ "verbose", 0, 0, 'v' },
 			{ "quad",    0, 0, '4' },
+			{ "slave",   0, 0, 'Z' },
 			{ NULL, 0, 0, 0 },
 		};
 		int c;
 
-		c = getopt_long(argc, argv, "D:s:d:b:i:o:lHOLC3NR24p:v",
+		c = getopt_long(argc, argv, "D:s:d:b:i:o:lHOLC3NR24p:vZ",
 				lopts, NULL);
 
 		if (c == -1)
 			break;
 
 		switch (c) {
+		case 'Z':
+			isSlave = 1;
+			break;
 		case 'D':
 			device = optarg;
 			break;
@@ -285,6 +291,8 @@ static void parse_opts(int argc, char *argv[])
 
 static void transfer_escaped_string(int fd, char *str)
 {
+printf("isSlave = %d\n", isSlave);
+
 	size_t size = strlen(str);
 	uint8_t *tx;
 	uint8_t *rx;
@@ -298,7 +306,29 @@ static void transfer_escaped_string(int fd, char *str)
 		pabort("can't allocate rx buffer");
 
 	size = unescape((char *)tx, str);
-	transfer(fd, tx, rx, size);
+/*
+	transfer(fd, tx, rx, size, isSlave);
+*/
+	if(isSlave == 0)
+	{
+		transfer(fd, tx, rx, size, isSlave);
+	}
+	else
+	{
+		size_t s0, s1;
+		s0 = size / 4;
+		s1 = size % 4;
+		int i;
+		for(i=0; i< 4; i++ )
+		{
+			transfer(fd, tx, rx, s0, isSlave);
+		}
+		if(s1>0)
+		{
+			transfer(fd, tx, rx, s1, isSlave);
+		}
+	}
+
 	free(rx);
 	free(tx);
 }
@@ -330,7 +360,7 @@ static void transfer_file(int fd, char *filename)
 	if (bytes != sb.st_size)
 		pabort("failed to read input file");
 
-	transfer(fd, tx, rx, sb.st_size);
+	transfer(fd, tx, rx, sb.st_size, isSlave);
 	free(rx);
 	free(tx);
 	close(tx_fd);
@@ -392,7 +422,7 @@ int main(int argc, char *argv[])
 	else if (input_file)
 		transfer_file(fd, input_file);
 	else
-		transfer(fd, default_tx, default_rx, sizeof(default_tx));
+		transfer(fd, default_tx, default_rx, sizeof(default_tx), isSlave);
 
 	close(fd);
 

@@ -1,0 +1,5 @@
+
+
+gcc m1.c common.c -o m1
+
+gcc s1.c common.c -o s1
